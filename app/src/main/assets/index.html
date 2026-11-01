@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta name="theme-color" content="#18213a"><title>Offline Ludo</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#10182b,#263b60);font-family:system-ui,Arial;color:#fff;min-height:100vh;padding:12px}
+header{text-align:center;margin:4px 0 12px}h1{font-size:25px;margin:0;color:#ffd65a;text-shadow:0 2px 5px #000}#sub{font-size:12px;color:#cbd5e1}
+.panel{max-width:650px;margin:auto;background:#ffffff12;border:1px solid #ffffff2b;border-radius:18px;padding:12px;box-shadow:0 12px 35px #0005}
+.controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:10px}
+button,select{border:0;border-radius:12px;padding:10px 13px;font-weight:700;font-size:14px}
+button{background:#ffd65a;color:#172033;cursor:pointer}button.secondary{background:#e5e7eb}button:disabled{opacity:.4}
+#board{width:100%;height:auto;display:block;background:#fff;border-radius:12px;touch-action:manipulation}
+.info{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap}
+#turn{font-weight:800;font-size:16px}#message{font-size:13px;color:#dbeafe;min-height:20px;text-align:center}
+.dicebox{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:8px}
+#dice{width:62px;height:62px;border-radius:15px;background:#fff;color:#172033;display:grid;place-items:center;font-size:35px;font-weight:900;box-shadow:0 4px 12px #0005}
+.manual{display:flex;gap:5px;flex-wrap:wrap;justify-content:center;margin-top:10px}.manual button{padding:8px 12px;min-width:40px}
+.small{font-size:11px;color:#cbd5e1;text-align:center;margin-top:10px}
+#newgame{background:#4ade80}
+</style></head><body>
+<header><h1>🎲 OFFLINE LUDO</h1><div id="sub">अपना गेम • Manual और Auto Dice</div></header>
+<div class="panel">
+<div class="controls">
+<select id="players" aria-label="Players"><option value="2">2 Player</option><option value="4">4 Player</option></select>
+<select id="diceMode" aria-label="Dice mode"><option value="manual">Manual Dice</option><option value="auto">Auto Dice</option></select>
+<button id="newgame">नया गेम</button>
+</div>
+<canvas id="board" width="600" height="600"></canvas>
+<div class="info"><span id="turn">🔴 लाल की बारी</span><span id="status">गोटी चुनें</span></div>
+<div class="dicebox"><div id="dice">⚄</div><button id="roll">Dice Roll</button></div>
+<div id="manual" class="manual"><button data-n="1">1</button><button data-n="2">2</button><button data-n="3">3</button><button data-n="4">4</button><button data-n="5">5</button><button data-n="6">6</button></div>
+<div id="message">6 आने पर गोटी बाहर निकालें। चलने योग्य गोटी पर टैप करें।</div>
+<div class="small">नियम: 6 पर गोटी बाहर • 6 या गोटी काटने पर अतिरिक्त चाल • जीत के लिए सही नंबर जरूरी</div>
+</div>
+<script>
+const c=document.getElementById('board'),ctx=c.getContext('2d');
+const colors=['#e53935','#1e9e58','#f4c430','#2878d0'],names=['लाल','हरा','पीला','नीला'],emojis=['🔴','🟢','🟡','🔵'];
+const path=[[6,1],[6,2],[6,3],[6,4],[6,5],[5,6],[4,6],[3,6],[2,6],[1,6],[0,6],[0,7],[0,8],[1,8],[2,8],[3,8],[4,8],[5,8],[6,9],[6,10],[6,11],[6,12],[6,13],[6,14],[7,14],[8,14],[8,13],[8,12],[8,11],[8,10],[8,9],[9,8],[10,8],[11,8],[12,8],[13,8],[14,8],[14,7],[14,6],[13,6],[12,6],[11,6],[10,6],[9,6],[8,5],[8,4],[8,3],[8,2],[8,1],[8,0],[7,0],[6,0]];
+const starts=[0,13,26,39];
+const lanes=[
+[[7,1],[7,2],[7,3],[7,4],[7,5],[7,6]],
+[[1,7],[2,7],[3,7],[4,7],[5,7],[6,7]],
+[[7,13],[7,12],[7,11],[7,10],[7,9],[7,8]],
+[[13,7],[12,7],[11,7],[10,7],[9,7],[8,7]]
+];
+const bases=[{x:0,y:0},{x:9,y:0},{x:9,y:9},{x:0,y:9}];
+const safe=[0,8,13,21,26,34,39,47];
+let active=[0,2],turn=0,dice=null,rolled=false,gameOver=false,tokens=[],valid=[];
+function reset(){active=document.getElementById('players').value==='2'?[0,2]:[0,1,2,3];turn=0;dice=null;rolled=false;gameOver=false;tokens=Array.from({length:4},()=>Array.from({length:4},()=>({step:-1})));valid=[];document.getElementById('dice').textContent='⚄';msg('6 आने पर गोटी बाहर निकालें।');draw();update();}
+function msg(t){document.getElementById('message').textContent=t}
+function cell(x,y){let s=40;return {x:x*s+s/2,y:y*s+s/2}}
+function rectCell(x,y,col){ctx.fillStyle=col;ctx.fillRect(x*40+1,y*40+1,38,38);ctx.strokeStyle='#9ca3af';ctx.strokeRect(x*40+1,y*40+1,38,38)}
+function draw(){
+ctx.clearRect(0,0,600,600);ctx.fillStyle='#f8fafc';ctx.fillRect(0,0,600,600);
+// four home yards
+const bcols=[colors[0],colors[1],colors[2],colors[3]];
+bases.forEach((b,i)=>{ctx.fillStyle=bcols[i];ctx.fillRect(b.x*40,b.y*40,240,240);ctx.fillStyle='#fff';ctx.fillRect(b.x*40+30,b.y*40+30,180,180);ctx.fillStyle=bcols[i]+'22';ctx.fillRect(b.x*40+42,b.y*40+42,156,156);});
+// track
+path.forEach(([x,y],i)=>{rectCell(x,y,safe.includes(i)?'#fef3c7':'#e5e7eb');});
+lanes.forEach((lane,i)=>lane.forEach(([x,y])=>rectCell(x,y,colors[i])));
+ctx.fillStyle='#f8fafc';ctx.fillRect(240,240,120,120);
+ctx.beginPath();ctx.moveTo(300,240);ctx.lineTo(360,300);ctx.lineTo(300,360);ctx.lineTo(240,300);ctx.closePath();ctx.fillStyle='#facc15';ctx.fill();
+ctx.beginPath();ctx.moveTo(300,240);ctx.lineTo(240,300);ctx.lineTo(240,240);ctx.closePath();ctx.fillStyle=colors[0];ctx.fill();
+ctx.beginPath();ctx.moveTo(300,240);ctx.lineTo(360,240);ctx.lineTo(360,300);ctx.closePath();ctx.fillStyle=colors[1];ctx.fill();
+ctx.beginPath();ctx.moveTo(360,300);ctx.lineTo(360,360);ctx.lineTo(300,360);ctx.closePath();ctx.fillStyle=colors[2];ctx.fill();
+ctx.beginPath();ctx.moveTo(300,360);ctx.lineTo(240,360);ctx.lineTo(240,300);ctx.closePath();ctx.fillStyle=colors[3];ctx.fill();
+// bases circles
+bases.forEach((b,i)=>{for(let j=0;j<4;j++){let px=b.x*40+75+(j%2)*90,py=b.y*40+75+Math.floor(j/2)*90;ctx.beginPath();ctx.arc(px,py,23,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();ctx.lineWidth=5;ctx.strokeStyle=colors[i];ctx.stroke();}});
+// tokens
+tokens.forEach((arr,ci)=>arr.forEach((t,ti)=>{let p;if(t.step<0){let b=bases[ci];p={x:b.x*40+75+(ti%2)*90,y:b.y*40+75+Math.floor(ti/2)*90};}else if(t.step<51){let idx=(starts[ci]+t.step)%52;p=cell(...path[idx]);}else{p=cell(...lanes[ci][Math.min(5,t.step-51)]);}
+ctx.beginPath();ctx.arc(p.x,p.y,13,0,Math.PI*2);ctx.fillStyle=colors[ci];ctx.fill();ctx.lineWidth=3;ctx.strokeStyle='#fff';ctx.stroke();ctx.fillStyle='#fff';ctx.font='bold 12px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(String(ti+1),p.x,p.y);
+if(valid.some(v=>v.c===ci&&v.t===ti)){ctx.beginPath();ctx.arc(p.x,p.y,19,0,Math.PI*2);ctx.strokeStyle='#111827';ctx.lineWidth=3;ctx.stroke();}
+}));
+}
+function legal(cidx,ti,n){let s=tokens[cidx][ti].step;if(s===-1)return n===6;if(s+n>56)return false;return true;}
+function getValid(n){let cidx=active[turn],out=[];tokens[cidx].forEach((t,ti)=>{if(legal(cidx,ti,n))out.push({c:cidx,t:ti})});return out;}
+function update(){let ci=active[turn];document.getElementById('turn').textContent=emojis[ci]+' '+names[ci]+' की बारी';document.getElementById('status').textContent=rolled?'गोटी चुनें':'Dice Roll करें';document.getElementById('manual').style.display=document.getElementById('diceMode').value==='manual'?'flex':'none';document.getElementById('roll').disabled=rolled||gameOver;}
+function roll(n){if(rolled||gameOver)return;dice=n;rolled=true;document.getElementById('dice').textContent=String(n);valid=getValid(n);if(!valid.length){msg('कोई चाल नहीं। अगली बारी।');setTimeout(nextTurn,650);}else{msg('चलने के लिए चमकती हुई गोटी पर टैप करें।');}draw();update();}
+function nextTurn(extra=false){if(gameOver)return;if(!extra)turn=(turn+1)%active.length;dice=null;rolled=false;valid=[];document.getElementById('dice').textContent='⚄';draw();update();}
+function move(cidx,ti){let t=tokens[cidx][ti];if(t.step===-1)t.step=0;else t.step+=dice;
+let captured=false;if(t.step<51){let pos=(starts[cidx]+t.step)%52;if(!safe.includes(pos)){for(let oc of active){if(oc===cidx)continue;tokens[oc].forEach(ot=>{if(ot.step>=0&&ot.step<51&&(starts[oc]+ot.step)%52===pos){ot.step=-1;captured=true;}});}}}
+let won=tokens[cidx].every(x=>x.step===56);let bonus=dice===6||captured;
+if(won){gameOver=true;msg('🎉 '+names[cidx]+' खिलाड़ी जीत गए! नया गेम दबाएँ।');}
+else{msg(captured?'आपने विरोधी की गोटी काट दी!':t.step===56?'गोटी घर पहुँच गई!':'अच्छी चाल!');}
+draw();if(!gameOver)setTimeout(()=>nextTurn(bonus),500);
+}
+function tap(e){if(!rolled||!valid.length)return;let r=c.getBoundingClientRect(),x=(e.clientX-r.left)*600/r.width,y=(e.clientY-r.top)*600/r.height;let hit=null;for(let v of valid){let t=tokens[v.c][v.t],p;if(t.step<0){let b=bases[v.c];p={x:b.x*40+75+(v.t%2)*90,y:b.y*40+75+Math.floor(v.t/2)*90};}else if(t.step<51)p=cell(...path[(starts[v.c]+t.step)%52]);else p=cell(...lanes[v.c][Math.min(5,t.step-51)]);if(Math.hypot(x-p.x,y-p.y)<25){hit=v;break;}}
+if(hit)move(hit.c,hit.t);else msg('कृपया चमकती हुई गोटी चुनें।');}
+document.getElementById('roll').onclick=()=>{if(document.getElementById('diceMode').value==='auto')roll(Math.floor(Math.random()*6)+1);else msg('Manual Dice में नीचे 1 से 6 चुनें।');};
+document.querySelectorAll('#manual button').forEach(b=>b.onclick=()=>roll(Number(b.dataset.n)));
+document.getElementById('newgame').onclick=reset;
+document.getElementById('players').onchange=reset;
+document.getElementById('diceMode').onchange=update;
+c.addEventListener('click',tap);reset();
+</script></body></html>
